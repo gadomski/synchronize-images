@@ -62,8 +62,8 @@ enum Error {
     },
     InvalidEventMarker(String),
     GpsWeekTimeSlip {
-        before: f64,
-        after: f64,
+        before: Position,
+        after: Position,
     },
 }
 
@@ -86,13 +86,15 @@ struct EventMarker {
 
 /// A trajectory.
 #[derive(Debug)]
-struct Trajectory {}
+struct Trajectory {
+    positions: Vec<Position>,
+}
 
 /// A position and orientation, with time.
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 struct Position {
     #[serde(alias = "GpsTime")]
-    time: Time,
+    time: f64,
 
     #[serde(alias = "X")]
     longitude: f64,
@@ -111,18 +113,6 @@ struct Position {
 
     #[serde(alias = "Azimuth")]
     yaw: f64,
-}
-
-/// A time enum to capture both GPS week time and real time.
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum Time {
-    /// GPS week time a.k.a. seconds from midnight on Sunday.
-    GpsWeekTime(f64),
-
-    /// Real time.
-    #[serde(skip_deserializing)]
-    Real(DateTime<Utc>),
 }
 
 impl Synchronizer {
@@ -236,9 +226,11 @@ impl fmt::Display for Error {
             Error::InvalidEventMarker(ref s) => {
                 write!(f, "could not parse string into event marker: {}", s)
             }
-            Error::GpsWeekTimeSlip { before, after } => {
-                write!(f, "gps week time slip: before={}, after={}", before, after)
-            }
+            Error::GpsWeekTimeSlip { before, after } => write!(
+                f,
+                "gps week time slip: before={}, after={}",
+                before.time, after.time
+            ),
         }
     }
 }
@@ -250,7 +242,17 @@ impl Trajectory {
     }
 
     fn new(positions: Vec<Position>) -> Result<Trajectory, Error> {
-        unimplemented!()
+        for (before, after) in positions.iter().zip(positions.iter().skip(1)) {
+            if before.time > after.time {
+                return Err(Error::GpsWeekTimeSlip {
+                    before: *before,
+                    after: *after,
+                });
+            }
+        }
+        Ok(Trajectory {
+            positions: positions,
+        })
     }
 }
 
@@ -301,5 +303,19 @@ mod tests {
     #[test]
     fn read_trajectory() {
         Trajectory::from_path("tests/data/trajectory.txt").unwrap();
+    }
+
+    #[test]
+    fn gps_week_time_slip() {
+        let mut positions = read_positions("tests/data/trajectory.txt").unwrap();
+        let before = positions.pop().unwrap();
+        positions.insert(0, before);
+        assert_eq!(
+            Error::GpsWeekTimeSlip {
+                before: positions[0],
+                after: positions[1],
+            },
+            Trajectory::new(positions).unwrap_err()
+        );
     }
 }
