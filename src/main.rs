@@ -1,10 +1,14 @@
 extern crate chrono;
 extern crate clap;
+extern crate csv;
 #[macro_use]
 extern crate failure;
 #[macro_use]
 extern crate lazy_static;
 extern crate regex;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 
 use chrono::{DateTime, Utc};
 use std::fmt;
@@ -79,6 +83,34 @@ struct EventMarker {
 /// A trajectory.
 #[derive(Debug)]
 struct Trajectory {}
+
+/// A position and orientation, with time.
+#[derive(Debug, Deserialize)]
+struct Position {
+    #[serde(alias = "GpsTime")]
+    time: Time,
+
+    #[serde(alias = "X")]
+    longitude: f64,
+
+    #[serde(alias = "Y")]
+    latitude: f64,
+
+    #[serde(alias = "Z")]
+    height: f64,
+}
+
+/// A time enum to capture both GPS week time and real time.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Time {
+    /// GPS week time a.k.a. seconds from midnight on Sunday.
+    GpsWeekTime(f64),
+
+    /// Real time.
+    #[serde(skip_deserializing)]
+    Real(DateTime<Utc>),
+}
 
 impl Synchronizer {
     /// Creates a new synchronizere.
@@ -198,6 +230,9 @@ impl fmt::Display for Error {
 impl Trajectory {
     /// Reads a trajectory and converts gps week seconds to real times.
     pub fn new<P: AsRef<Path>>(path: P, synchro: &Synchro) -> Result<Trajectory, failure::Error> {
+        use csv::Reader;
+        let mut reader = Reader::from_path(path)?;
+        let positions = reader.deserialize().collect::<Result<Vec<Position>, _>>()?;
         unimplemented!()
     }
 }
