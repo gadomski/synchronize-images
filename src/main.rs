@@ -69,7 +69,7 @@ fn main() -> Result<(), failure::Error> {
                 None => break,
             };
         } else if after_datetime < event_marker.datetime {
-            let positions = match trajectory.next() {
+            match trajectory.next() {
                 Some((b, a)) => {
                     before = b;
                     after = a;
@@ -77,7 +77,7 @@ fn main() -> Result<(), failure::Error> {
                 None => break,
             };
         } else {
-
+            unreachable!()
         }
     }
 
