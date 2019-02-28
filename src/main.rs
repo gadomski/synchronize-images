@@ -38,17 +38,17 @@ fn main() -> Result<(), failure::Error> {
                 .index(3),
         )
         .get_matches();
-    let synchro = Synchro::from_path(matches.value_of("SYNCHRO").unwrap())?;
+    let event_markers = read_synchro(matches.value_of("SYNCHRO").unwrap())?;
     let images = read_image_names(matches.value_of("IMAGES").unwrap())?;
-    let _synchronizer = Synchronizer::new(synchro, images)?;
+    let synchronizer = Synchronizer::new(event_markers, images)?;
     let trajectory = Trajectory::from_path(matches.value_of("TRAJECTORY").unwrap())?;
     Ok(())
 }
 
-/// The structure that is used to syncronize the synchro file, the image names, and the trajectory.
+/// A zipped iterator over the event markers and the images.
 #[derive(Debug)]
 struct Synchronizer {
-    synchro: IntoIter<EventMarker>,
+    event_markers: IntoIter<EventMarker>,
     images: IntoIter<String>,
 }
 
@@ -56,7 +56,7 @@ struct Synchronizer {
 #[derive(Debug, Fail, PartialEq)]
 enum Error {
     CountMismatch {
-        synchro: Synchro,
+        event_markers: Vec<EventMarker>,
         images: Vec<String>,
     },
     InvalidEventMarker(String),
@@ -64,14 +64,6 @@ enum Error {
         before: Position,
         after: Position,
     },
-}
-
-/// A "SYNCRO" file from Apps.
-///
-/// These files contain the timestamps of each image record.
-#[derive(Clone, Debug, PartialEq)]
-struct Synchro {
-    event_markers: Vec<EventMarker>,
 }
 
 /// An event marker.
@@ -116,15 +108,15 @@ struct Position {
 
 impl Synchronizer {
     /// Creates a new synchronizere.
-    fn new(synchro: Synchro, images: Vec<String>) -> Result<Synchronizer, Error> {
-        if synchro.len() != images.len() {
+    fn new(event_markers: Vec<EventMarker>, images: Vec<String>) -> Result<Synchronizer, Error> {
+        if event_markers.len() != images.len() {
             return Err(Error::CountMismatch {
-                synchro: synchro,
+                event_markers: event_markers,
                 images: images,
             });
         }
         Ok(Synchronizer {
-            synchro: synchro.into_iter(),
+            event_markers: event_markers.into_iter(),
             images: images.into_iter(),
         })
     }
@@ -137,42 +129,25 @@ impl Iterator for Synchronizer {
     }
 }
 
-impl Synchro {
-    /// Reads in a synchro file from a path.
-    fn from_path<P: AsRef<Path>>(path: P) -> Result<Synchro, failure::Error> {
-        use std::fs::File;
-        use std::io::{BufRead, BufReader};
+/// Reads in a synchro file from a path.
+fn read_synchro<P: AsRef<Path>>(path: P) -> Result<Vec<EventMarker>, failure::Error> {
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
 
-        let reader = BufReader::new(File::open(path)?);
-        let event_markers = reader
-            .lines()
-            .filter_map(|result| match result {
-                Ok(line) => {
-                    if line.is_empty() || line.starts_with('#') {
-                        None
-                    } else {
-                        Some(line.parse().map_err(failure::Error::from))
-                    }
+    let reader = BufReader::new(File::open(path)?);
+    reader
+        .lines()
+        .filter_map(|result| match result {
+            Ok(line) => {
+                if line.is_empty() || line.starts_with('#') {
+                    None
+                } else {
+                    Some(line.parse().map_err(failure::Error::from))
                 }
-                Err(err) => Some(Err(err.into())),
-            })
-            .collect::<Result<Vec<EventMarker>, _>>()?;
-        Ok(Synchro {
-            event_markers: event_markers,
+            }
+            Err(err) => Some(Err(err.into())),
         })
-    }
-
-    fn len(&self) -> usize {
-        self.event_markers.len()
-    }
-}
-
-impl IntoIterator for Synchro {
-    type Item = EventMarker;
-    type IntoIter = IntoIter<EventMarker>;
-    fn into_iter(self) -> IntoIter<EventMarker> {
-        self.event_markers.into_iter()
-    }
+        .collect::<Result<Vec<EventMarker>, _>>()
 }
 
 impl FromStr for EventMarker {
@@ -214,12 +189,12 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::CountMismatch {
-                ref synchro,
+                ref event_markers,
                 ref images,
             } => write!(
                 f,
-                "count mismatch: synchro={}, images={}",
-                synchro.len(),
+                "count mismatch: event_markers={}, images={}",
+                event_markers.len(),
                 images.len()
             ),
             Error::InvalidEventMarker(ref s) => {
@@ -277,7 +252,7 @@ mod tests {
 
     #[test]
     fn read_synchro() {
-        Synchro::from_path("tests/data/synchro.xpf").unwrap();
+        super::read_synchro("tests/data/synchro.xpf").unwrap();
     }
 
     #[test]
@@ -287,22 +262,22 @@ mod tests {
 
     #[test]
     fn new_synchronizer() {
-        let synchro = Synchro::from_path("tests/data/synchro.xpf").unwrap();
+        let event_markers = super::read_synchro("tests/data/synchro.xpf").unwrap();
         let images = super::read_image_names("tests/data/images.txt").unwrap();
-        Synchronizer::new(synchro, images).unwrap();
+        Synchronizer::new(event_markers, images).unwrap();
     }
 
     #[test]
     fn count_mismatch() {
-        let synchro = Synchro::from_path("tests/data/synchro.xpf").unwrap();
+        let event_markers = super::read_synchro("tests/data/synchro.xpf").unwrap();
         let mut images = super::read_image_names("tests/data/images.txt").unwrap();
         images.pop().unwrap();
         assert_eq!(
             Error::CountMismatch {
                 images: images.clone(),
-                synchro: synchro.clone(),
+                event_markers: event_markers.clone(),
             },
-            Synchronizer::new(synchro, images).unwrap_err()
+            Synchronizer::new(event_markers, images).unwrap_err()
         );
     }
 
