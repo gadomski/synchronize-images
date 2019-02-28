@@ -12,6 +12,7 @@ extern crate serde_derive;
 
 use chrono::{DateTime, Utc};
 use std::fmt;
+use std::iter::Skip;
 use std::path::Path;
 use std::str::FromStr;
 use std::vec::IntoIter;
@@ -41,7 +42,8 @@ fn main() -> Result<(), failure::Error> {
     let event_markers = read_synchro(matches.value_of("SYNCHRO").unwrap())?;
     let images = read_image_names(matches.value_of("IMAGES").unwrap())?;
     let synchronizer = Synchronizer::new(event_markers, images)?;
-    let trajectory = Trajectory::from_path(matches.value_of("TRAJECTORY").unwrap())?;
+    let mut trajectory = Trajectory::from_path(matches.value_of("TRAJECTORY").unwrap())?;
+    let (before, after) = trajectory.next().ok_or(Error::EmptyTrajectory)?;
     Ok(())
 }
 
@@ -59,6 +61,11 @@ enum Error {
         event_markers: Vec<EventMarker>,
         images: Vec<String>,
     },
+    EmptyTrajectory,
+    EventMarkerSlip {
+        before: EventMarker,
+        after: EventMarker,
+    },
     InvalidEventMarker(String),
     GpsWeekTimeSlip {
         before: Position,
@@ -69,7 +76,7 @@ enum Error {
 /// An event marker.
 ///
 /// Links a timestamp and a event marker number.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct EventMarker {
     datetime: DateTime<Utc>,
     number: i32,
@@ -78,7 +85,8 @@ struct EventMarker {
 /// A trajectory.
 #[derive(Debug)]
 struct Trajectory {
-    positions: IntoIter<Position>,
+    before: IntoIter<Position>,
+    after: Skip<IntoIter<Position>>,
 }
 
 /// A position and orientation, with time.
@@ -114,6 +122,14 @@ impl Synchronizer {
                 event_markers: event_markers,
                 images: images,
             });
+        }
+        for (before, after) in event_markers.iter().zip(event_markers.iter().skip(1)) {
+            if before.datetime > after.datetime {
+                return Err(Error::EventMarkerSlip {
+                    before: *before,
+                    after: *after,
+                });
+            }
         }
         Ok(Synchronizer {
             event_markers: event_markers.into_iter(),
@@ -197,6 +213,15 @@ impl fmt::Display for Error {
                 event_markers.len(),
                 images.len()
             ),
+            Error::EmptyTrajectory => write!(f, "empty trajectory"),
+            Error::EventMarkerSlip {
+                ref before,
+                ref after,
+            } => write!(
+                f,
+                "event marker slip: before={}, after={}",
+                before.datetime, after.datetime
+            ),
             Error::InvalidEventMarker(ref s) => {
                 write!(f, "could not parse string into event marker: {}", s)
             }
@@ -225,15 +250,18 @@ impl Trajectory {
             }
         }
         Ok(Trajectory {
-            positions: positions.into_iter(),
+            before: positions.clone().into_iter(),
+            after: positions.into_iter().skip(1),
         })
     }
 }
 
 impl Iterator for Trajectory {
-    type Item = Position;
-    fn next(&mut self) -> Option<Position> {
-        self.positions.next()
+    type Item = (Position, Position);
+    fn next(&mut self) -> Option<(Position, Position)> {
+        self.before
+            .next()
+            .and_then(|before| self.after.next().map(|after| (before, after)))
     }
 }
 
@@ -268,17 +296,20 @@ mod tests {
     }
 
     #[test]
+    fn event_marker_time_slip() {
+        let mut event_markers = super::read_synchro("tests/data/synchro.xpf").unwrap();
+        let event_marker = event_markers.pop().unwrap();
+        event_markers.insert(0, event_marker);
+        let images = super::read_image_names("tests/data/images.txt").unwrap();
+        Synchronizer::new(event_markers, images).unwrap_err();
+    }
+
+    #[test]
     fn count_mismatch() {
         let event_markers = super::read_synchro("tests/data/synchro.xpf").unwrap();
         let mut images = super::read_image_names("tests/data/images.txt").unwrap();
         images.pop().unwrap();
-        assert_eq!(
-            Error::CountMismatch {
-                images: images.clone(),
-                event_markers: event_markers.clone(),
-            },
-            Synchronizer::new(event_markers, images).unwrap_err()
-        );
+        Synchronizer::new(event_markers, images).unwrap_err();
     }
 
     #[test]
