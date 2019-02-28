@@ -5,7 +5,7 @@ authors = ["Pete Gadomski <pete.gadomski@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 clap = "2.32"
 csv = "1.0"
 failure = "0.1"

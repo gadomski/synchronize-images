@@ -41,10 +41,60 @@ fn main() -> Result<(), failure::Error> {
         .get_matches();
     let event_markers = read_synchro(matches.value_of("SYNCHRO").unwrap())?;
     let images = read_image_names(matches.value_of("IMAGES").unwrap())?;
-    let synchronizer = Synchronizer::new(event_markers, images)?;
+    let mut synchronizer = Synchronizer::new(event_markers, images)?;
     let mut trajectory = Trajectory::from_path(matches.value_of("TRAJECTORY").unwrap())?;
-    let (before, after) = trajectory.next().ok_or(Error::EmptyTrajectory)?;
+
+    let (mut event_marker, mut file_name) = synchronizer.next().ok_or(Error::NoEventMarkers)?;
+    let (mut before, mut after) = trajectory.next().ok_or(Error::EmptyTrajectory)?;
+
+    let mut records = Vec::new();
+    loop {
+        let before_datetime = before.datetime(&event_marker);
+        let after_datetime = after.datetime(&event_marker);
+        if before_datetime <= event_marker.datetime && after_datetime >= event_marker.datetime {
+            records.push(Record::new(event_marker, file_name, before, after));
+            match synchronizer.next() {
+                Some((e, f)) => {
+                    event_marker = e;
+                    file_name = f;
+                }
+                None => break,
+            };
+        } else if before_datetime > event_marker.datetime {
+            match synchronizer.next() {
+                Some((e, f)) => {
+                    event_marker = e;
+                    file_name = f;
+                }
+                None => break,
+            };
+        } else if after_datetime < event_marker.datetime {
+            let positions = match trajectory.next() {
+                Some((b, a)) => {
+                    before = b;
+                    after = a;
+                }
+                None => break,
+            };
+        } else {
+
+        }
+    }
+
     Ok(())
+}
+
+/// The output record.
+#[derive(Debug, Serialize)]
+struct Record {
+    file_name: String,
+    datetime: DateTime<Utc>,
+    longitude: f64,
+    latitude: f64,
+    height: f64,
+    roll: f64,
+    pitch: f64,
+    yaw: f64,
 }
 
 /// A zipped iterator over the event markers and the images.
@@ -66,11 +116,12 @@ enum Error {
         before: EventMarker,
         after: EventMarker,
     },
-    InvalidEventMarker(String),
     GpsWeekTimeSlip {
         before: Position,
         after: Position,
     },
+    InvalidEventMarker(String),
+    NoEventMarkers,
 }
 
 /// An event marker.
@@ -112,6 +163,17 @@ struct Position {
 
     #[serde(alias = "Azimuth")]
     yaw: f64,
+}
+
+impl Record {
+    fn new(
+        event_marker: EventMarker,
+        file_name: String,
+        before: Position,
+        after: Position,
+    ) -> Record {
+        unimplemented!()
+    }
 }
 
 impl Synchronizer {
@@ -230,6 +292,7 @@ impl fmt::Display for Error {
                 "gps week time slip: before={}, after={}",
                 before.time, after.time
             ),
+            Error::NoEventMarkers => write!(f, "no event markers"),
         }
     }
 }
@@ -262,6 +325,13 @@ impl Iterator for Trajectory {
         self.before
             .next()
             .and_then(|before| self.after.next().map(|after| (before, after)))
+    }
+}
+
+impl Position {
+    /// Converts this position's gps week time to a real datetime.
+    fn datetime(&self, event_marker: &EventMarker) -> DateTime<Utc> {
+        unimplemented!()
     }
 }
 
