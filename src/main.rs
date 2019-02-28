@@ -362,7 +362,7 @@ fn make_gps_week_time_absolute(gps_week_time: f64, reference: DateTime<Utc>) -> 
         - Duration::days(i64::from(reference.weekday().num_days_from_sunday())))
     .date()
     .and_hms(0, 0, 0);
-    start_of_week
+    start_of_week + Duration::microseconds((gps_week_time * 1e6) as i64)
 }
 
 #[cfg(test)]
@@ -429,6 +429,10 @@ mod tests {
         assert_eq!(
             Utc.ymd(2019, 2, 24).and_hms(0, 0, 0),
             super::make_gps_week_time_absolute(0., reference)
+        );
+        assert_eq!(
+            Utc.ymd(2019, 2, 25).and_hms(0, 0, 0),
+            super::make_gps_week_time_absolute(86400., reference)
         );
     }
 }
