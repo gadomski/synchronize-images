@@ -19,6 +19,9 @@ use std::vec::IntoIter;
 
 fn main() -> Result<(), failure::Error> {
     use clap::{App, Arg};
+    use csv::Writer;
+    use std::io;
+
     let matches = App::new("Synchronize images")
         .arg(
             Arg::with_name("SYNCHRO")
@@ -79,6 +82,11 @@ fn main() -> Result<(), failure::Error> {
         } else {
             unreachable!()
         }
+    }
+
+    let mut writer = Writer::from_writer(io::stdout());
+    for record in records {
+        writer.serialize(record)?;
     }
 
     Ok(())
@@ -203,7 +211,11 @@ impl Synchronizer {
 impl Iterator for Synchronizer {
     type Item = (EventMarker, String);
     fn next(&mut self) -> Option<(EventMarker, String)> {
-        unimplemented!()
+        self.event_markers.next().and_then(|event_marker| {
+            self.images
+                .next()
+                .map(|file_name| (event_marker, file_name))
+        })
     }
 }
 
@@ -331,7 +343,7 @@ impl Iterator for Trajectory {
 impl Position {
     /// Converts this position's gps week time to a real datetime.
     fn datetime(&self, event_marker: &EventMarker) -> DateTime<Utc> {
-        unimplemented!()
+        make_gps_week_time_absolute(self.time, event_marker.datetime)
     }
 }
 
@@ -342,6 +354,15 @@ fn read_positions<P: AsRef<Path>>(path: P) -> Result<Vec<Position>, failure::Err
         .deserialize()
         .collect::<Result<Vec<Position>, _>>()
         .map_err(failure::Error::from)
+}
+
+fn make_gps_week_time_absolute(gps_week_time: f64, reference: DateTime<Utc>) -> DateTime<Utc> {
+    use chrono::{Datelike, Duration};
+    let start_of_week = (reference
+        - Duration::days(i64::from(reference.weekday().num_days_from_sunday())))
+    .date()
+    .and_hms(0, 0, 0);
+    start_of_week
 }
 
 #[cfg(test)]
@@ -398,6 +419,16 @@ mod tests {
                 after: positions[1],
             },
             Trajectory::new(positions).unwrap_err()
+        );
+    }
+
+    #[test]
+    fn make_gps_week_time_absolute() {
+        use chrono::TimeZone;
+        let reference = Utc.ymd(2019, 2, 28).and_hms(12, 11, 10);
+        assert_eq!(
+            Utc.ymd(2019, 2, 24).and_hms(0, 0, 0),
+            super::make_gps_week_time_absolute(0., reference)
         );
     }
 }
