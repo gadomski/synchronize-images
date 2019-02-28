@@ -7,6 +7,7 @@ extern crate lazy_static;
 extern crate regex;
 
 use chrono::{DateTime, Utc};
+use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
 
@@ -19,22 +20,41 @@ fn main() -> Result<(), failure::Error> {
                 .required(true)
                 .index(1),
         )
+        .arg(
+            Arg::with_name("IMAGES")
+                .help("A file with one image name per line")
+                .required(true)
+                .index(2),
+        )
         .get_matches();
-    let _synchro = Synchro::from_path(matches.value_of("SYNCHRO").unwrap())?;
+    let synchro = Synchro::from_path(matches.value_of("SYNCHRO").unwrap())?;
+    let images = read_image_names(matches.value_of("IMAGES").unwrap())?;
+
+    let _synchronizer = Synchronizer::new(synchro, images)?;
     Ok(())
 }
 
+/// The structure that is used to syncronize the synchro file, the image names, and the trajectory.
+#[derive(Debug)]
+struct Synchronizer {
+    synchro: Synchro,
+    images: Vec<String>,
+}
+
 /// The errors that can be produced by this executable.
-#[derive(Debug, Fail)]
+#[derive(Debug, Fail, PartialEq)]
 enum Error {
-    #[fail(display = "this string could not be parsed as an event marker: {}", _0)]
+    CountMismatch {
+        synchro: Synchro,
+        images: Vec<String>,
+    },
     InvalidEventMarker(String),
 }
 
 /// A "SYNCRO" file from Apps.
 ///
 /// These files contain the timestamps of each image record.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct Synchro {
     event_markers: Vec<EventMarker>,
 }
@@ -42,10 +62,26 @@ struct Synchro {
 /// An event marker.
 ///
 /// Links a timestamp and a event marker number.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct EventMarker {
     datetime: DateTime<Utc>,
     number: i32,
+}
+
+impl Synchronizer {
+    /// Creates a new synchronizere.
+    fn new(synchro: Synchro, images: Vec<String>) -> Result<Synchronizer, Error> {
+        if synchro.len() != images.len() {
+            return Err(Error::CountMismatch {
+                synchro: synchro,
+                images: images,
+            });
+        }
+        Ok(Synchronizer {
+            synchro: synchro,
+            images: images,
+        })
+    }
 }
 
 impl Synchro {
@@ -72,6 +108,10 @@ impl Synchro {
             event_markers: event_markers,
         })
     }
+
+    fn len(&self) -> usize {
+        self.event_markers.len()
+    }
 }
 
 impl FromStr for EventMarker {
@@ -97,6 +137,37 @@ impl FromStr for EventMarker {
     }
 }
 
+/// Read image names from a file.
+///
+/// One file name per line.
+fn read_image_names<P: AsRef<Path>>(path: P) -> Result<Vec<String>, failure::Error> {
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+    BufReader::new(File::open(path)?)
+        .lines()
+        .map(|result| result.map_err(failure::Error::from))
+        .collect::<Result<Vec<String>, _>>()
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::CountMismatch {
+                ref synchro,
+                ref images,
+            } => write!(
+                f,
+                "count mismatch: synchro={}, images={}",
+                synchro.len(),
+                images.len()
+            ),
+            Error::InvalidEventMarker(ref s) => {
+                write!(f, "could not parse string into event marker: {}", s)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,5 +175,31 @@ mod tests {
     #[test]
     fn read_synchro() {
         Synchro::from_path("tests/data/synchro.xpf").unwrap();
+    }
+
+    #[test]
+    fn read_image_names() {
+        super::read_image_names("tests/data/images.txt").unwrap();
+    }
+
+    #[test]
+    fn new_synchronizer() {
+        let synchro = Synchro::from_path("tests/data/synchro.xpf").unwrap();
+        let images = super::read_image_names("tests/data/images.txt").unwrap();
+        Synchronizer::new(synchro, images).unwrap();
+    }
+
+    #[test]
+    fn count_mismatch() {
+        let synchro = Synchro::from_path("tests/data/synchro.xpf").unwrap();
+        let mut images = super::read_image_names("tests/data/images.txt").unwrap();
+        images.pop().unwrap();
+        assert_eq!(
+            Error::CountMismatch {
+                images: images.clone(),
+                synchro: synchro.clone(),
+            },
+            Synchronizer::new(synchro, images).unwrap_err()
+        );
     }
 }
