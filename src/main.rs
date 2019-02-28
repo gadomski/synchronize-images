@@ -32,15 +32,15 @@ fn main() -> Result<(), failure::Error> {
                 .index(2),
         )
         .arg(
-            Arg::with_name("IMAGES")
-                .help("A file with one image name per line")
+            Arg::with_name("TRAJECTORY")
+                .help("A trajectory file, probably created by reading SBET to text with PDAL")
                 .required(true)
-                .index(2),
+                .index(3),
         )
         .get_matches();
     let synchro = Synchro::from_path(matches.value_of("SYNCHRO").unwrap())?;
     let images = read_image_names(matches.value_of("IMAGES").unwrap())?;
-    let trajectory = Trajectory::new(matches.value_of("TRAJECTORY").unwrap(), &synchro)?;
+    let trajectory = Trajectory::from_path(matches.value_of("TRAJECTORY").unwrap())?;
 
     let _synchronizer = Synchronizer::new(synchro, images)?;
     Ok(())
@@ -61,6 +61,10 @@ enum Error {
         images: Vec<String>,
     },
     InvalidEventMarker(String),
+    GpsWeekTimeSlip {
+        before: f64,
+        after: f64,
+    },
 }
 
 /// A "SYNCRO" file from Apps.
@@ -232,18 +236,31 @@ impl fmt::Display for Error {
             Error::InvalidEventMarker(ref s) => {
                 write!(f, "could not parse string into event marker: {}", s)
             }
+            Error::GpsWeekTimeSlip { before, after } => {
+                write!(f, "gps week time slip: before={}, after={}", before, after)
+            }
         }
     }
 }
 
 impl Trajectory {
-    /// Reads a trajectory and converts gps week seconds to real times.
-    pub fn new<P: AsRef<Path>>(path: P, synchro: &Synchro) -> Result<Trajectory, failure::Error> {
-        use csv::Reader;
-        let mut reader = Reader::from_path(path)?;
-        let positions = reader.deserialize().collect::<Result<Vec<Position>, _>>()?;
+    fn from_path<P: AsRef<Path>>(path: P) -> Result<Trajectory, failure::Error> {
+        let positions = read_positions(path)?;
+        Trajectory::new(positions).map_err(failure::Error::from)
+    }
+
+    fn new(positions: Vec<Position>) -> Result<Trajectory, Error> {
         unimplemented!()
     }
+}
+
+fn read_positions<P: AsRef<Path>>(path: P) -> Result<Vec<Position>, failure::Error> {
+    use csv::Reader;
+    let mut reader = Reader::from_path(path)?;
+    reader
+        .deserialize()
+        .collect::<Result<Vec<Position>, _>>()
+        .map_err(failure::Error::from)
 }
 
 #[cfg(test)]
@@ -282,8 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn new_trajectory() {
-        let synchro = Synchro::from_path("tests/data/synchro.xpf").unwrap();
-        Trajectory::new("tests/data/trajectory.txt", &synchro).unwrap();
+    fn read_trajectory() {
+        Trajectory::from_path("tests/data/trajectory.txt").unwrap();
     }
 }
