@@ -180,7 +180,21 @@ impl Record {
         before: Position,
         after: Position,
     ) -> Record {
-        unimplemented!()
+        let before_datetime = before.datetime(&event_marker);
+        let after_datetime = after.datetime(&event_marker);
+        let factor = (event_marker.datetime - before_datetime).num_milliseconds() as f64
+            / (after_datetime - before_datetime).num_milliseconds() as f64;
+        let interpolate = |before: f64, after: f64| before + factor * (after - before);
+        Record {
+            file_name: file_name,
+            datetime: event_marker.datetime,
+            longitude: interpolate(before.longitude, after.longitude),
+            latitude: interpolate(before.latitude, after.latitude),
+            height: interpolate(before.height, after.height),
+            roll: interpolate(before.roll, after.roll),
+            pitch: interpolate(before.pitch, after.pitch),
+            yaw: interpolate(before.yaw, after.yaw),
+        }
     }
 }
 
