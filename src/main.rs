@@ -98,6 +98,15 @@ struct Position {
 
     #[serde(alias = "Z")]
     height: f64,
+
+    #[serde(alias = "Roll")]
+    roll: f64,
+
+    #[serde(alias = "Pitch")]
+    pitch: f64,
+
+    #[serde(alias = "Azimuth")]
+    yaw: f64,
 }
 
 /// A time enum to capture both GPS week time and real time.
