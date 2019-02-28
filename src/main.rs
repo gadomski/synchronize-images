@@ -40,9 +40,8 @@ fn main() -> Result<(), failure::Error> {
         .get_matches();
     let synchro = Synchro::from_path(matches.value_of("SYNCHRO").unwrap())?;
     let images = read_image_names(matches.value_of("IMAGES").unwrap())?;
-    let trajectory = Trajectory::from_path(matches.value_of("TRAJECTORY").unwrap())?;
-
     let _synchronizer = Synchronizer::new(synchro, images)?;
+    let trajectory = Trajectory::from_path(matches.value_of("TRAJECTORY").unwrap())?;
     Ok(())
 }
 
@@ -87,7 +86,7 @@ struct EventMarker {
 /// A trajectory.
 #[derive(Debug)]
 struct Trajectory {
-    positions: Vec<Position>,
+    positions: IntoIter<Position>,
 }
 
 /// A position and orientation, with time.
@@ -251,8 +250,15 @@ impl Trajectory {
             }
         }
         Ok(Trajectory {
-            positions: positions,
+            positions: positions.into_iter(),
         })
+    }
+}
+
+impl Iterator for Trajectory {
+    type Item = Position;
+    fn next(&mut self) -> Option<Position> {
+        self.positions.next()
     }
 }
 
