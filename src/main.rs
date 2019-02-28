@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
+use std::vec::IntoIter;
 
 fn main() -> Result<(), failure::Error> {
     use clap::{App, Arg};
@@ -37,8 +38,8 @@ fn main() -> Result<(), failure::Error> {
 /// The structure that is used to syncronize the synchro file, the image names, and the trajectory.
 #[derive(Debug)]
 struct Synchronizer {
-    synchro: Synchro,
-    images: Vec<String>,
+    synchro: IntoIter<EventMarker>,
+    images: IntoIter<String>,
 }
 
 /// The errors that can be produced by this executable.
@@ -78,9 +79,16 @@ impl Synchronizer {
             });
         }
         Ok(Synchronizer {
-            synchro: synchro,
-            images: images,
+            synchro: synchro.into_iter(),
+            images: images.into_iter(),
         })
+    }
+}
+
+impl Iterator for Synchronizer {
+    type Item = (EventMarker, String);
+    fn next(&mut self) -> Option<(EventMarker, String)> {
+        unimplemented!()
     }
 }
 
@@ -111,6 +119,14 @@ impl Synchro {
 
     fn len(&self) -> usize {
         self.event_markers.len()
+    }
+}
+
+impl IntoIterator for Synchro {
+    type Item = EventMarker;
+    type IntoIter = IntoIter<EventMarker>;
+    fn into_iter(self) -> IntoIter<EventMarker> {
+        self.event_markers.into_iter()
     }
 }
 
