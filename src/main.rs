@@ -1,4 +1,5 @@
 extern crate chrono;
+extern crate clap;
 #[macro_use]
 extern crate failure;
 #[macro_use]
@@ -9,8 +10,18 @@ use chrono::{DateTime, Utc};
 use std::path::Path;
 use std::str::FromStr;
 
-fn main() {
-    println!("Hello, world!");
+fn main() -> Result<(), failure::Error> {
+    use clap::{App, Arg};
+    let matches = App::new("Synchronize images")
+        .arg(
+            Arg::with_name("SYNCHRO")
+                .help("The SYNCHRO file from Apps")
+                .required(true)
+                .index(1),
+        )
+        .get_matches();
+    let _synchro = Synchro::from_path(matches.value_of("SYNCHRO").unwrap())?;
+    Ok(())
 }
 
 /// The errors that can be produced by this executable.
@@ -33,7 +44,7 @@ struct Synchro {
 /// Links a timestamp and a event marker number.
 #[derive(Debug)]
 struct EventMarker {
-    timestamp: DateTime<Utc>,
+    datetime: DateTime<Utc>,
     number: i32,
 }
 
@@ -57,21 +68,32 @@ impl Synchro {
                 Err(err) => Some(Err(err.into())),
             })
             .collect::<Result<Vec<EventMarker>, _>>()?;
-        unimplemented!()
+        Ok(Synchro {
+            event_markers: event_markers,
+        })
     }
 }
 
 impl FromStr for EventMarker {
-    type Err = Error;
-    fn from_str(s: &str) -> Result<EventMarker, Error> {
+    type Err = failure::Error;
+    fn from_str(s: &str) -> Result<EventMarker, failure::Error> {
+        use chrono::{NaiveDate, NaiveTime, TimeZone};
         use regex::Regex;
+
         lazy_static! {
             static ref RE: Regex = Regex::new(r"^(?P<date>\d{4}/\d{2}/\d{2})\s+(?P<time>\d{2}:\d{2}:\d{2}.\d{4})\s+(?P<number>\d+)$").unwrap();
         }
         let captures = RE
             .captures(s)
             .ok_or(Error::InvalidEventMarker(s.to_string()))?;
-        unimplemented!()
+        let date = NaiveDate::parse_from_str(captures.name("date").unwrap().as_str(), "%Y/%m/%d")?;
+        let time =
+            NaiveTime::parse_from_str(captures.name("time").unwrap().as_str(), "%H:%M:%S.%f")?;
+        let number = captures.name("number").unwrap().as_str().parse()?;
+        Ok(EventMarker {
+            datetime: Utc.from_utc_datetime(&date.and_time(time)),
+            number: number,
+        })
     }
 }
 
