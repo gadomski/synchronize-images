@@ -27,9 +27,16 @@ fn main() -> Result<(), failure::Error> {
                 .required(true)
                 .index(2),
         )
+        .arg(
+            Arg::with_name("IMAGES")
+                .help("A file with one image name per line")
+                .required(true)
+                .index(2),
+        )
         .get_matches();
     let synchro = Synchro::from_path(matches.value_of("SYNCHRO").unwrap())?;
     let images = read_image_names(matches.value_of("IMAGES").unwrap())?;
+    let trajectory = Trajectory::new(matches.value_of("TRAJECTORY").unwrap(), &synchro)?;
 
     let _synchronizer = Synchronizer::new(synchro, images)?;
     Ok(())
@@ -68,6 +75,10 @@ struct EventMarker {
     datetime: DateTime<Utc>,
     number: i32,
 }
+
+/// A trajectory.
+#[derive(Debug)]
+struct Trajectory {}
 
 impl Synchronizer {
     /// Creates a new synchronizere.
@@ -184,6 +195,13 @@ impl fmt::Display for Error {
     }
 }
 
+impl Trajectory {
+    /// Reads a trajectory and converts gps week seconds to real times.
+    pub fn new<P: AsRef<Path>>(path: P, synchro: &Synchro) -> Result<Trajectory, failure::Error> {
+        unimplemented!()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,5 +235,11 @@ mod tests {
             },
             Synchronizer::new(synchro, images).unwrap_err()
         );
+    }
+
+    #[test]
+    fn new_trajectory() {
+        let synchro = Synchro::from_path("tests/data/synchro.xpf").unwrap();
+        Trajectory::new("tests/data/trajectory.txt", &synchro).unwrap();
     }
 }
